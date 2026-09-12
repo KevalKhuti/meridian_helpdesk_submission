@@ -62,7 +62,15 @@ export default function TicketDetail() {
           <li key={c.id} className={c.is_internal ? 'internal' : ''}>
             <strong>{c.author_name}</strong>
             <span className="when">{new Date(c.created_at).toLocaleString()}</span>
-            <div dangerouslySetInnerHTML={{ __html: c.body }} />
+            {/* Part 1 fix (finding #4): comments are plain text, not markup —
+                rendering them with dangerouslySetInnerHTML let any commenter
+                (including the lowest-privilege requester) run script in the
+                browser of anyone who opened the ticket, including admins,
+                whose JWT lives in localStorage. React escapes text content
+                by default, so this is just removing the unsafe render path;
+                no sanitiser dependency needed since no legitimate HTML was
+                ever expected here. */}
+            <div className="comment-body">{c.body}</div>
           </li>
         ))}
       </ul>
