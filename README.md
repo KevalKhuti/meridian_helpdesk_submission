@@ -82,9 +82,9 @@ not be able to see each other's tickets.
 | Method | Path                             | Notes                          |
 | ------ | -------------------------------- | ------------------------------ |
 | POST   | `/api/auth/login`                | Returns a JWT                  |
-| POST   | `/api/auth/invite/accept`        | New joiner sets their password |
-| GET    | `/api/tickets`                   | Paginated, 20 per page         |
-| GET    | `/api/tickets/:id`               | Ticket plus its comments       |
+| POST   | `/api/auth/invite/accept`        | New joiner sets their password via `{ token, password }` |
+| GET    | `/api/tickets`                   | Paginated, 20 per page. `?breached=true` filters to SLA-breached tickets only |
+| GET    | `/api/tickets/:id`               | Ticket plus its comments. Both this and the list above carry an `sla: { targetHours, firstRespondedAt, breached }` field per ticket — see `DECISIONS.md` |
 | POST   | `/api/tickets`                   | Raise a ticket                 |
 | PATCH  | `/api/tickets/:id/assign`        | Claim a ticket                 |
 | DELETE | `/api/tickets/:id`               | Admin only                     |
