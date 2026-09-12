@@ -22,3 +22,7 @@ button:disabled { opacity:.4; cursor:default; }
 .comments li.internal { background:#fffbe6; }
 .comments .when { color:#666; font-size:12px; margin-left:8px; }
 .meta { color:#555; font-size:14px; }
+.badge-breach { background:#b00020; color:#fff; font-size:12px; font-weight:700;
+  padding:2px 8px; border-radius:999px; display:inline-block; }
+.breach-filter { display:flex; align-items:center; gap:6px; font-size:14px; color:#333; }
+.sla-banner { display:inline-block; margin: 8px 0; }

@@ -16,11 +16,20 @@ export default function TicketList() {
   const [status, setStatus] = useState('');
   const [priority, setPriority] = useState('');
   const [sortBy, setSortBy] = useState('created_at');
+  const [breachedOnly, setBreachedOnly] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Part 2: this effect used to depend only on [page] (Part 1 finding #9 —
+  // changing search/status/priority/sortBy silently did nothing until the
+  // page number also changed). The new "breached only" filter needs to
+  // actually trigger a refetch when toggled, and there's no honest way to
+  // wire that in without also wiring in the filters that were already
+  // broken — so this fixes #9 as a side effect of building this feature
+  // correctly. See REVIEW.md (#9) and DECISIONS.md.
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams({ page, search, status, priority, sortBy, order: 'desc' });
+    if (breachedOnly) params.set('breached', 'true');
     api(`/tickets?${params.toString()}`)
       .then((data) => {
         setRows(data.rows);
@@ -28,7 +37,16 @@ export default function TicketList() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page]);
+  }, [page, search, status, priority, sortBy, breachedOnly]);
+
+  // Any filter change jumps back to page 1 — otherwise you can land on a
+  // "page 3" that no longer exists once the result set shrinks.
+  function updateFilter(setter) {
+    return (value) => {
+      setter(value);
+      setPage(1);
+    };
+  }
 
   async function handleDelete(id) {
     await api(`/tickets/${id}`, { method: 'DELETE' });
@@ -45,24 +63,32 @@ export default function TicketList() {
         <input
           placeholder="Search subject…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => updateFilter(setSearch)(e.target.value)}
         />
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select value={status} onChange={(e) => updateFilter(setStatus)(e.target.value)}>
           {STATUSES.map((s) => (
             <option key={s} value={s}>{s || 'Any status'}</option>
           ))}
         </select>
-        <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+        <select value={priority} onChange={(e) => updateFilter(setPriority)(e.target.value)}>
           {PRIORITIES.map((p) => (
             <option key={p} value={p}>{p || 'Any priority'}</option>
           ))}
         </select>
-        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+        <select value={sortBy} onChange={(e) => updateFilter(setSortBy)(e.target.value)}>
           <option value="created_at">Created</option>
           <option value="updated_at">Updated</option>
           <option value="priority">Priority</option>
           <option value="status">Status</option>
         </select>
+        <label className="breach-filter">
+          <input
+            type="checkbox"
+            checked={breachedOnly}
+            onChange={(e) => updateFilter(setBreachedOnly)(e.target.checked)}
+          />
+          Breached only
+        </label>
       </div>
 
       {loading && <p>Loading…</p>}
@@ -71,7 +97,7 @@ export default function TicketList() {
         <thead>
           <tr>
             <th>#</th><th>Subject</th><th>Status</th><th>Priority</th>
-            <th>Assignee</th><th>Comments</th><th>Created</th><th />
+            <th>SLA</th><th>Assignee</th><th>Comments</th><th>Created</th><th />
           </tr>
         </thead>
         <tbody>
@@ -81,6 +107,7 @@ export default function TicketList() {
               <td><Link to={`/tickets/${t.id}`}>{t.subject}</Link></td>
               <td>{t.status}</td>
               <td>{t.priority}</td>
+              <td>{t.sla?.breached && <span className="badge-breach">Breached</span>}</td>
               <td>{t.assignee_name || '—'}</td>
               <td>{t.comment_count}</td>
               <td>{new Date(t.created_at).toLocaleString()}</td>

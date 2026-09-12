@@ -51,6 +51,15 @@ export default function TicketDetail() {
         #{ticket.id} · {ticket.status} · {ticket.priority} ·
         requested by {ticket.requester_name} ({ticket.requester_email})
       </p>
+      {/* Part 2: SLA breach badge. Server only ever reports breached=true
+          while the ticket is open/pending (see DECISIONS.md, question 2) —
+          the client doesn't need its own status check here, it just
+          displays whatever the server says. */}
+      {ticket.sla?.breached && (
+        <p className="sla-banner">
+          <span className="badge-breach">SLA breached — {ticket.sla.targetHours}h target</span>
+        </p>
+      )}
       <p className="body">{ticket.body}</p>
 
       {!ticket.assignee_id && <button onClick={claim}>Claim this ticket</button>}
