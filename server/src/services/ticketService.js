@@ -2,6 +2,22 @@ import { query } from '../db/pool.js';
 
 const PAGE_SIZE = 20;
 
+// Part 1 fix (finding #5): sortBy/order used to be interpolated straight from
+// req.query into the raw SQL string with no allow-list, so any direct API
+// call (not just the UI's own dropdown) could inject arbitrary SQL there.
+// Anything not on this list silently falls back to a safe default instead of
+// erroring, since an unrecognised sort is a client mistake, not something the
+// user needs an error page for.
+const SORTABLE_COLUMNS = new Set(['created_at', 'updated_at', 'priority', 'status', 'subject']);
+
+function safeSortColumn(sortBy) {
+  return SORTABLE_COLUMNS.has(sortBy) ? sortBy : 'created_at';
+}
+
+function safeSortOrder(order) {
+  return String(order).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+}
+
 /**
  * Paginated ticket list for the current organisation.
  *
@@ -27,6 +43,8 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
 
   const whereSql = where.join(' AND ');
   const offset = page * PAGE_SIZE;
+  const sortColumn = safeSortColumn(sortBy);
+  const sortOrder = safeSortOrder(order);
 
   const rows = await query(
     `SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at,
@@ -35,7 +53,7 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
        LEFT JOIN users u ON u.id = t.assignee_id
        JOIN users r ON r.id = t.requester_id
       WHERE ${whereSql}
-      ORDER BY t.${sortBy} ${order}
+      ORDER BY t.${sortColumn} ${sortOrder}
       LIMIT ? OFFSET ?`,
     [...params, PAGE_SIZE, offset]
   );
@@ -54,14 +72,30 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
   return { rows, total, page, pageSize: PAGE_SIZE };
 }
 
-export async function getTicketById(id) {
+/**
+ * Part 1 fix (findings #2/#3): this used to have no org_id filter at all, so
+ * any authenticated user from either organisation could fetch, assign, or
+ * delete any ticket by id, regardless of which company it belonged to. The
+ * orgId parameter is optional so internal callers (e.g. right after
+ * createTicket inserts a row it already knows the org of) don't need to pass
+ * it, but every route handler that takes a ticket id from the URL must pass
+ * the caller's orgId here.
+ */
+export async function getTicketById(id, orgId) {
+  const where = ['t.id = ?'];
+  const params = [id];
+  if (orgId !== undefined) {
+    where.push('t.org_id = ?');
+    params.push(orgId);
+  }
+
   const rows = await query(
     `SELECT t.*, u.name AS assignee_name, r.name AS requester_name, r.email AS requester_email
        FROM tickets t
        LEFT JOIN users u ON u.id = t.assignee_id
        JOIN users r ON r.id = t.requester_id
-      WHERE t.id = ?`,
-    [id]
+      WHERE ${where.join(' AND ')}`,
+    params
   );
   return rows[0] || null;
 }
@@ -86,8 +120,8 @@ export async function createTicket({ orgId, subject, body, priority, requesterId
   return getTicketById(result.insertId);
 }
 
-export async function assignTicket(ticketId, assigneeId) {
-  const ticket = await getTicketById(ticketId);
+export async function assignTicket(ticketId, assigneeId, orgId) {
+  const ticket = await getTicketById(ticketId, orgId);
   if (!ticket) return null;
 
   if (ticket.assignee_id) {
@@ -98,7 +132,7 @@ export async function assignTicket(ticketId, assigneeId) {
   const [agent] = await query('SELECT id, name FROM users WHERE id = ?', [assigneeId]);
 
   await query('UPDATE tickets SET assignee_id = ?, status = ? WHERE id = ?', [assigneeId, 'pending', ticketId]);
-  return { conflict: false, assignedTo: agent, ticket: await getTicketById(ticketId) };
+  return { conflict: false, assignedTo: agent, ticket: await getTicketById(ticketId, orgId) };
 }
 
 export async function deleteTicket(id) {
