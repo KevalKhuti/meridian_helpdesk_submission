@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
 import { config } from '../src/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -90,6 +91,21 @@ async function main() {
     );
     users.push({ id: r.insertId, org: orgIds[orgIdx], role });
   }
+  // A not-yet-activated joiner, to demonstrate the fixed invite/accept flow
+  // (Part 1, finding #1). Their password_hash is an unusable placeholder —
+  // there is no password they could log in with until they redeem the invite.
+  const [newHire] = await conn.query(
+    'INSERT INTO users (org_id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)',
+    [orgIds[0], 'newhire@northwind.test', 'invite-pending', 'Sami Vogel', 'agent']
+  );
+  const inviteToken = crypto.randomBytes(32).toString('hex');
+  const inviteExpiry = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 19).replace('T', ' ');
+  await conn.query(
+    'INSERT INTO invites (user_id, token, expires_at) VALUES (?, ?, ?)',
+    [newHire.insertId, inviteToken, inviteExpiry]
+  );
+  users.push({ id: newHire.insertId, org: orgIds[0], role: 'agent' });
+
   for (let i = 0; i < 22; i++) {
     const orgIdx = i % 2;
     const name = `${pick(FIRST)} ${pick(LAST)}`;
@@ -144,6 +160,7 @@ async function main() {
 
   console.log(`Seeded ${orgs.length} organisations, ${users.length} users, ${ticketCount} tickets, ${commentCount} comments.`);
   console.log('All accounts use the password: Password123!');
+  console.log(`Pending invite for newhire@northwind.test — token: ${inviteToken}`);
   await conn.end();
 }
 

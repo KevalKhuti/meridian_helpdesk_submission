@@ -3,6 +3,7 @@
 
 DROP TABLE IF EXISTS comments;
 DROP TABLE IF EXISTS tickets;
+DROP TABLE IF EXISTS invites;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS organizations;
 
@@ -25,6 +26,23 @@ CREATE TABLE users (
   UNIQUE KEY uq_users_email (email),
   KEY idx_users_org (org_id),
   CONSTRAINT fk_users_org FOREIGN KEY (org_id) REFERENCES organizations (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Part 1 fix (finding #1): invite/accept previously took a bare userId with no
+-- proof the caller was the invited person, and stored the password in plaintext.
+-- This table gives each invite a single-use, expiring, unguessable token so the
+-- accept endpoint has something real to check.
+CREATE TABLE invites (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id     INT UNSIGNED NOT NULL,
+  token       CHAR(64) NOT NULL,
+  expires_at  DATETIME NOT NULL,
+  used_at     DATETIME DEFAULT NULL,
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_invites_token (token),
+  KEY idx_invites_user (user_id),
+  CONSTRAINT fk_invites_user FOREIGN KEY (user_id) REFERENCES users (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE tickets (
