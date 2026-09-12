@@ -1,4 +1,5 @@
 import { query } from '../db/pool.js';
+import { FIRST_RESPONSE_JOIN_SQL, breachedExprSql, attachSlaState } from './sla.js';
 
 const PAGE_SIZE = 20;
 
@@ -24,7 +25,7 @@ function safeSortOrder(order) {
  * Supports free-text search on subject, filtering by status and priority,
  * and sorting by any column the UI exposes in its dropdown.
  */
-export async function listTickets({ orgId, page = 1, search = '', status, priority, sortBy = 'created_at', order = 'desc' }) {
+export async function listTickets({ orgId, page = 1, search = '', status, priority, sortBy = 'created_at', order = 'desc', breachedOnly = false }) {
   const where = ['t.org_id = ?'];
   const params = [orgId];
 
@@ -41,6 +42,11 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
     params.push(priority);
   }
 
+  const breachedExpr = breachedExprSql();
+  if (breachedOnly) {
+    where.push(`(${breachedExpr}) = 1`);
+  }
+
   const whereSql = where.join(' AND ');
   const offset = page * PAGE_SIZE;
   const sortColumn = safeSortColumn(sortBy);
@@ -48,24 +54,31 @@ export async function listTickets({ orgId, page = 1, search = '', status, priori
 
   const rows = await query(
     `SELECT t.id, t.subject, t.status, t.priority, t.created_at, t.updated_at,
-            t.assignee_id, u.name AS assignee_name, r.name AS requester_name
+            t.assignee_id, u.name AS assignee_name, r.name AS requester_name,
+            fr.first_response_at, (${breachedExpr}) AS breached
        FROM tickets t
        LEFT JOIN users u ON u.id = t.assignee_id
        JOIN users r ON r.id = t.requester_id
+       ${FIRST_RESPONSE_JOIN_SQL}
       WHERE ${whereSql}
       ORDER BY t.${sortColumn} ${sortOrder}
       LIMIT ? OFFSET ?`,
     [...params, PAGE_SIZE, offset]
   );
 
-  // Attach the comment count each row needs for the list badge.
+  // Attach the comment count each row needs for the list badge, and the SLA
+  // state for the breach badge (Part 2).
   for (const row of rows) {
     const [{ c }] = await query('SELECT COUNT(*) AS c FROM comments WHERE ticket_id = ?', [row.id]);
     row.comment_count = c;
+    attachSlaState(row);
   }
 
   const [{ total }] = await query(
-    `SELECT COUNT(*) AS total FROM tickets t WHERE ${whereSql}`,
+    `SELECT COUNT(*) AS total
+       FROM tickets t
+       ${FIRST_RESPONSE_JOIN_SQL}
+      WHERE ${whereSql}`,
     params
   );
 
@@ -89,15 +102,18 @@ export async function getTicketById(id, orgId) {
     params.push(orgId);
   }
 
+  const breachedExpr = breachedExprSql();
   const rows = await query(
-    `SELECT t.*, u.name AS assignee_name, r.name AS requester_name, r.email AS requester_email
+    `SELECT t.*, u.name AS assignee_name, r.name AS requester_name, r.email AS requester_email,
+            fr.first_response_at, (${breachedExpr}) AS breached
        FROM tickets t
        LEFT JOIN users u ON u.id = t.assignee_id
        JOIN users r ON r.id = t.requester_id
+       ${FIRST_RESPONSE_JOIN_SQL}
       WHERE ${where.join(' AND ')}`,
     params
   );
-  return rows[0] || null;
+  return rows[0] ? attachSlaState(rows[0]) : null;
 }
 
 export async function listComments(ticketId) {
